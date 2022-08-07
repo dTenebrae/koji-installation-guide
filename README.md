@@ -169,7 +169,7 @@ localityName_default            = Murom
 0.organizationName              = Organization Name (eg, company)
 0.organizationName_default      = RED-SOFT
 organizationalUnitName          = Organizational Unit Name (eg, OS-DEVEL)
-commonName                      = Common Name (your server\'s hostname)
+commonName                      = insert_hostname
 commonName_max                  = 64
 emailAddress                    = Email Address
 emailAddress_max                = 64
@@ -272,10 +272,123 @@ __Organizational Unit Name__ (он же OU) можно сделать kojihub и
 
 Для других сертификатов (kojira, kojid, первичный админский аккаунт, все серты юзеров), используется наоборот, сертификат аутентифицирующий клиента-серверу.  
 __Common Name__ для них должен быть логином конкретного компонента. 
-Например CN для kojira будет, как ни удивительно, kojira. Причина для этого в том, что CN сертификата будет использоваться для сравнения с именем пользоваеля к базе данных koji. И если в базе данных не будет имени пользователя совпадающего с конкретным CN - аутентификация не пройдет.
+Например CN для kojira будет, как ни удивительно, kojira. Причина для этого в том, что CN сертификата будет использоваться для сравнения с именем пользователя в базе данных koji. И если в базе данных не будет имени пользователя совпадающего с конкретным CN - аутентификация не пройдет.
 
-Когда мы создадим сертификат для kojiweb, было бы неплохо точно запомнить все данные, которые мы вводили при генерации, так как это потребуется при конфигурировании файла 
-/etc/koji-hub/hub.conf, а именно поля ProxyDNs
+Кстати, когда мы создадим сертификат для kojiweb, было бы неплохо точно запомнить все данные, которые мы вводили при генерации, так как это потребуется при конфигурировании файла /etc/koji-hub/hub.conf, а именно поля ProxyDNs
 
-В рамках этого гайда админский аккаунт назовем kojiadmin. Понятное дело, что в реальной системе он может быть назван как угодно
+Для упрощения себе жизни создадим скрипт-генератор сертификатов  
+Обзовем его certgen.sh
+
+```
+#!/bin/bash
+# if you change your certificate authority name to something else you will
+# need to change the caname value to reflect the change.
+caname=koji
+
+# user is equal to parameter one or the first argument when you actually
+# run the script
+user=$1
+
+openssl genrsa -out private/${user}.key 2048
+
+# when you creating an user certificate, it is nice, when script change 
+# default CN to this username. 
+# Anyway you have to type it, coz in other case it will be empty string
+# insert_hostname keyword (or whatever) should be in your ssl.cnf file
+cat ssl.cnf | sed 's/insert_hostname/'${user}'/'> ssl2.cnf
+
+openssl req -config ssl2.cnf -new -nodes -out certs/${user}.csr -key private/${user}.key
+openssl ca -config ssl2.cnf -keyfile private/${caname}_ca_cert.key -cert ${caname}_ca_cert.crt \
+    -out certs/${user}.crt -outdir certs -infiles certs/${user}.csr
+cat certs/${user}.crt private/${user}.key > ${user}.pem
+mv ssl2.cnf confs/${user}-ssl.cnf
+```
+
+Далее, дадим ему права на запуск
+```
+chmod +x certgen.sh
+```
+
+Кроме того, создадим скрипт поменьше, для генерации сертификата для браузера. Это нам потребуется один раз (если повезет), но лишним не будет.  
+Назовем его webcertgen.sh. Так же сделаем его запускаемым
+
+```
+#!/bin/bash
+#if you change your certificate authority name to something else you will need to change the caname value to reflect the change.
+caname=koji
+
+# user is equal to parameter one or the first argument when you actually run the script
+user=$1
+
+openssl pkcs12 -export -inkey private/${user}.key -in certs/${user}.crt \
+    -CAfile ${caname}_ca_cert.crt -out certs/${user}_browser_cert.p12
+```
+
+Посмотрим, что у нас имеется в директории /etc/pki/koji сейчас
+
+```
+[root@localhost koji]# tree -a --dirsfirst
+.
+├── certs
+├── confs
+├── private
+│   └── koji_ca_cert.key
+├── certgen.sh
+├── index.txt
+├── koji_ca_cert.crt
+├── .rand
+├── serial
+├── ssl.cnf
+└── webcertgen.sh
+```
+
+Когда мы сгенерируем сертификат для пользователя, ему потребуются, ${user}.pem, 
+${caname}_ca_cert.crt и ${user}_browser_cert.p12.
+
+Первым делом создадим админа koji и сертификаты для него.
+В рамках этого гайда назовем его kojiadmin. Понятное дело, что в реальной системе он может быть назван как угодно
+
+```
+./certgen.sh kojiadmin
+```
+Как мы уже обсуждали, CN для всего, кроме koji-hub и koji-web, должен быть равен имени пользователя, иначе аутентификация не пройдет.  
+Например:
+
+```
+Country Name (2 letter code) [RU]:
+State or Province Name (full name) [Vladimir]:
+Locality Name (eg, city) [Murom]:
+Organization Name (eg, company) [RED-SOFT]:
+Organizational Unit Name (eg, OS-DEVEL) []:os-dev
+kojiadmin []:kojiadmin
+Email Address []:
+```
+Видим, что в нужном месте наш скрипт вежливо подсказал, каким должен быть CN
+
+Пошли дальше. Создадим пользователя в системе и скопируем ему сгенерированные сертификаты в домашнюю папку
+
+
+```
+useradd kojiadmin
+su kojiadmin
+mkdir ~/.koji
+# ВАЖНО использовать PEM а не CRT
+cp /etc/pki/koji/kojiadmin.pem ~/.koji/client.crt
+cp /etc/pki/koji/koji_ca_cert.crt ~/.koji/clientca.crt
+cp /etc/pki/koji/koji_ca_cert.crt ~/.koji/serverca.crt
+```
+
+Настройки koji хранятся в файле /etc/koji.conf. Если требуется настройка в зависимости от пользователя, то можно разместить файл koji.conf в ~/.koji каждого конкретного юзера
+
+
+### База данных
+
+Мы будем использовать postgres, в теории можно любую.
+
+Установим сервер БД и CLI koji
+
+```
+su
+dnf install -y postgresql-server koji
+```
 
