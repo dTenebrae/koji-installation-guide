@@ -66,7 +66,7 @@ ___
 
 [comment]: <> (написать про возможность бриджа и подключения к виртуалке извне)
 
-<img src="./img/ether1.png" width="500" height="350" /> <img src="./img/ether2.png" width="500" height="350" />
+<img src="./img/ether1.png" width="400" height="250" /> <img src="./img/ether2.png" width="400" height="250" />
 
 3) Подключаемся как root (если включили такую возможность. В противном случае как юзер)  
 
@@ -99,6 +99,12 @@ ___
 
 *С высокой долей вероятности, если Вы раньше не работали с генерацией сертификатов, то после этого гайда Вы будете их ненавидеть*
 
+*CA это Certificate Authority.*
+
+Это пара ключ/сертификат используемая для подписи всех прочих запросов сертификации. Когда мы будем конфигурировать разные куски Koji оба сертификата - и клиентский, и серверный будут копией CA сгенерированного здесь. CA сертификат будет размещен в /etc/pki/koji, а сертификаты для остальных компонентов в /etc/pki/koji/certs.  
+
+index.txt - это база сгенерированных сертификатов. В нем удобно быстро посмотреть когда, кому и что выдали
+
 Для начала, создадим директорию /etc/pki/koji  
 
 ```
@@ -107,7 +113,7 @@ mkdir -p /etc/pki/koji
 
 и поместим туда следующий конфигурационный файл для генерации сертов  
 
-*ssl.conf*
+*ssl.cnf*
 ``` 
 HOME                            = .
 RANDFILE                        = .rand
@@ -193,4 +199,69 @@ default_md = md5
 
 Секцию *[req_distinguished_name]* можно отредактировать под свои нужды, дабы потом не приходилось менять дефолтные значения (город например) при каждой генерации сертификата. А их будет много
 
+Поехали дальше
+
+```
+cd /etc/pki/koji/
+mkdir {certs,private,confs}
+touch index.txt
+echo 01 > serial
+openssl genrsa -out private/koji_ca_cert.key 2048
+openssl req -config ssl.cnf -new -x509 -days 3650 -key private/koji_ca_cert.key \
+-out koji_ca_cert.crt -extensions v3_ca
+```
+
+Скорее всего при выполнении последней команды у вас возникнет ошибка следующего характера:
+
+<img src="./img/error1.png" width="750" height="200" />
+
+Это происходит потому, что openssl ожидает цвидеть объявленный в ssl.cnf файл .rand в текущей директории. А его там скорее всего нет. Надо это исправлять
+
+```
+openssl rand -writerand .rand
+```
+
+После этого повторяем команду
+
+```
+openssl req -config ssl.cnf -new -x509 -days 3650 -key private/koji_ca_cert.key \
+-out koji_ca_cert.crt -extensions v3_ca
+```
+
+На отсутствующий файл ругаться перестанет и мы заполним дефолтные значения сертификата, например:
+
+```
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [RU]:
+State or Province Name (full name) [Vladimir]:
+Locality Name (eg, city) [Murom]:
+Organization Name (eg, company) [RED-SOFT]:
+Organizational Unit Name (eg, OS-DEVEL) []:os-dev
+Common Name (your server's hostname) []:stapel667.red-soft.ru
+Email Address []:
+```
+
+Там, гда после двоеточия ничего не поставлено - будут использоваться дефолтные значения, указанные в квадратных скобках (кроме почты, там ничего не будет, ибо лень писать, а оно не обязательно). Именно их мы редактировали в файле ssl.cnf
+
+Результат выполнения команды *tree* (если не поставили - рекомендую, облегчает понимание, что где лежит)
+
+```
+[root@localhost koji]# tree -a
+.
+├── certs
+├── confs
+├── index.txt
+├── koji_ca_cert.crt
+├── private
+│   └── koji_ca_cert.key
+├── .rand
+├── serial
+└── ssl.cnf
+```
 
