@@ -376,6 +376,7 @@ mkdir ~/.koji
 cp /etc/pki/koji/kojiadmin.pem ~/.koji/client.crt
 cp /etc/pki/koji/koji_ca_cert.crt ~/.koji/clientca.crt
 cp /etc/pki/koji/koji_ca_cert.crt ~/.koji/serverca.crt
+exit
 ```
 
 Настройки koji хранятся в файле /etc/koji.conf. Если требуется настройка в зависимости от пользователя, то можно разместить файл koji.conf в ~/.koji каждого конкретного юзера
@@ -388,7 +389,237 @@ cp /etc/pki/koji/koji_ca_cert.crt ~/.koji/serverca.crt
 Установим сервер БД и CLI koji
 
 ```
-su
 dnf install -y postgresql-server koji
 ```
 
+Инициализируем БД и запускаем сервис
+
+```
+postgresql-setup --initdb --unit postgresql
+systemctl enable postgresql --now
+```
+
+Создаем пользователя koji. Для удобства сделаем без пароля.
+
+```
+useradd koji
+passwd -d koji
+```
+
+Теперь настроим postgres и создадим схему
+
+```
+su postgres
+createuser --no-superuser --no-createrole --no-createdb koji
+createdb -O koji koji
+su koji
+psql koji koji < /usr/share/doc/koji*/docs/schema.sql
+```
+
+__Важно__: Когда импортируем схему в чистую БД, важно чтобы это осуществлялось от лица koji юзера. Иначе будут проблемы
+
+Отредактируем /var/lib/pgsql/data/pg_hba.conf 
+Так как мы все делаем на одной машине: 
+```
+#TYPE   DATABASE    USER    CIDR-ADDRESS      METHOD
+local   koji        koji                       trust
+local   all         postgres                   peer
+```
+
+Пояснения:
+
+* The local connection type means the postgres connection uses a local Unix socket, so PostgreSQL is not exposed over TCP/IP at all.
+
+* The local koji user should only have access to the koji database. The local postgres user will have access to everything (in order to create the koji database and user.)
+
+* The CIDR-ADDRESS column is blank, because this example only uses local Unix sockets.
+
+* The trust method means that PosgreSQL will permit any connections from any local user for this username. We set this for the koji user because Apache httpd runs as the apache system user rather than the koji user when it connects to the Unix socket. trust is not secure on a multi-user system, but it is fine for a single-purpose Koji system.
+
+* The peer method means that PostgreSQL will obtain the client’s operating system username and use that as the allowed username. This is safer than trust because only the local postgres system user will be able to access PostgreSQL with this level of access.
+
+[comment]: <> (перевести)
+
+В файле /var/lib/pgsql/data/postgresql.conf блокируем доступ по TCP/IP (мы ж на одной машине все делаем)
+
+```
+listen_addresses = ''
+```
+
+Перезапускаем postgres
+
+```
+systemctl reload postgresql
+```
+
+Создадим нашего __kojiadmin__'a в БД
+
+```
+su koji
+psql
+insert into users (name, status, usertype) values ('kojiadmin', 0, 0);
+insert into user_perms (user_id, perm_id, creator_id) values (1, 1, 1);
+```
+
+С базой данный все.
+Теперь опять к сертификатам
+
+### Koji-hub
+
+Установим apache, koji-hub и ssl-модуль для апача
+
+```
+dnf install -y httpd koji-hub mod_ssl
+```
+
+Сгенерируем сертификаты для kojihub и kojiweb. Как мы помним, CN в этом случае равен FQDN (в моем случае, stapel667.red-soft.ru), а OU - kojihub или kojiweb соответственно. Тут наша подсказка, которая заменяет CN, будет немного мешать, поэтому будьте внимательны и осторожны
+
+```
+cd /etc/pki/koji
+./certgen.sh kojiweb
+./certgen.sh kojihub
+```
+
+Что в нашей любимой папке:
+```
+[root@localhost koji]# tree -a --dirsfirst
+.
+├── certs
+│   ├── 01.pem
+│   ├── 02.pem
+│   ├── 03.pem
+│   ├── 04.pem
+│   ├── kojiadmin.crt
+│   ├── kojiadmin.csr
+│   ├── kojihub.crt
+│   ├── kojihub.csr
+│   ├── kojiweb.crt
+│   └── kojiweb.csr
+├── confs
+│   ├── kojiadmin-ssl.cnf
+│   ├── kojihub-ssl.cnf
+│   └── kojiweb-ssl.cnf
+├── private
+│   ├── kojiadmin.key
+│   ├── koji_ca_cert.key
+│   ├── kojihub.key
+│   └── kojiweb.key
+├── certgen.sh
+├── index.txt
+├── index.txt.attr
+├── index.txt.attr.old
+├── index.txt.old
+├── kojiadmin.pem
+├── koji_ca_cert.crt
+├── kojihub.pem
+├── kojiweb.pem
+├── .rand
+├── serial
+├── serial.old
+├── ssl.cnf
+└── webcertgen.sh
+```
+
+В /etc/httpd/conf.d/kojihub.conf раскомментируем следующее:
+
+```
+# uncomment this to enable authentication via SSL client certificates
+# <Location /kojihub/ssllogin>
+#         SSLVerifyClient require
+#         SSLVerifyDepth  10
+#         SSLOptions +StdEnvVars
+# </Location>
+```
+
+В /etc/httpd/conf.d/ssl.conf
+
+```
+SSLCertificateFile /etc/pki/koji/certs/kojihub.crt
+SSLCertificateKeyFile /etc/pki/koji/private/kojihub.key
+SSLCertificateChainFile /etc/pki/koji/koji_ca_cert.crt
+SSLCACertificateFile /etc/pki/koji/koji_ca_cert.crt
+```
+
+В /etc/koji-hub/hub.conf
+
+```
+DBName = koji
+DBUser = koji
+
+KojiDir = /mnt/koji
+LoginCreatesUser = On
+KojiWebURL = http://stapel667.red-soft.ru/koji
+
+DNUsernameComponent = CN
+ProxyDNs = CN=stapel667.red-soft.ru,OU=kojiweb,O=RED-SOFT,ST=Vladimir,C=RU
+
+```
+
+Чтобы позволить апачу подсоединиться к БД
+
+```
+setsebool -P httpd_can_network_connect_db=1
+```
+
+### Подготовка файловой системы
+
+```
+cd /mnt
+mkdir koji
+cd koji
+mkdir {packages,repos,work,scratch,repos-dist}
+chown apache.apache *
+```
+
+Нужно поставить нехватающую либу (semanage)
+```
+dnf install -y policycoreutils-python-utils
+```
+
+Разрешим апачу писать в созданную файловую систему
+```
+setsebool -P allow_httpd_anon_write=1
+semanage fcontext -a -t public_content_rw_t "/mnt/koji(/.*)?"
+restorecon -r -v /mnt/koji
+```
+
+Запустим Apache
+
+```
+systemctl enable httpd.service --now
+```
+
+### Koji CLI
+
+Зайдем в /etc/koji.conf
+
+```
+[koji]
+
+;url of XMLRPC server
+server = http://stapel667.red-soft.ru/kojihub
+
+;url of web interface
+weburl = http://stapel667.red-soft.ru/koji
+
+;url of package download site
+topurl = http://stapel667.red-soft.ru/kojifiles
+
+;path to the koji top directory
+topdir = /mnt/koji
+
+; configuration for SSL athentication
+
+;client certificate
+cert = ~/.koji/client.crt
+
+;certificate of the CA that issued the HTTP server certificate
+serverca = ~/.koji/serverca.crt
+```
+
+Проверим
+
+```
+su kojiadmin
+koji moshimoshi
+```
