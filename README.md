@@ -846,3 +846,49 @@ systemctl enable kojid.service --now
 Теперь, если мы нигде не ошиблись, в разделе hosts должен появиться наш билдер
 
 <img src="./img/koji2.png" width="700" height="200" />
+
+#### Kojira - Работа с Dnf|Yum репозиториями
+
+    Установка
+
+```
+dnf install -y koji-utils
+```
+
+Сгенерируем очередной сертификат. Здесь CN можно использовать просто kojira.
+
+```
+cd /etc/pki/koji
+./certgen.sh kojira
+```
+
+Создадим пользователя. Кроме того этот пользователь требует разрешение на работу с репозиториями
+
+```
+su kojiadmin
+koji add-user kojira
+koji grant-permission repo kojira
+exit
+```
+
+В файле ```/etc/kojira/kojira.conf```
+
+```
+[kojira]
+server=http://stapel667.red-soft.ru/kojihub
+
+topdir=/mnt/koji
+
+cert = /etc/pki/koji/kojira.pem
+serverca = /etc/pki/koji/koji_ca_cert.crt
+```
+
+Запускаем kojira
+
+```
+systemctl enable kojira.service --now
+```
+
+
+
+##### На этом с установкой и настройкой Koji все. Далее будем подключать репозитории и пытаться использовать то, что мы создали.
