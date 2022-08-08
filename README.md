@@ -83,9 +83,13 @@ ssh -p 3022 root@127.0.0.1
 
 Все, теперь работаем как белые люди, не нужно настраивать clipboard'ы и т.п.
 
-___
 
-#### *Аутентификация в Koji работает либо через Kerberos, либо через SSL. В данном гайде рассматривается SSL*
+
+> **NOTE:**
+> 
+> Аутентификация в Koji работает либо через Kerberos, либо через SSL. В данном гайде рассматривается SSL
+
+
 
 С этого и начнем
 
@@ -719,3 +723,48 @@ dnf install -y koji-web
 #     SSLOptions +StdEnvVars
 # </Location>
 ```
+
+Файл ```/etc/httpd/conf.d/ssl.conf``` мы уже откорректировали ранее
+
+
+
+Пошли в ```/etc/kojiweb/web.conf```
+
+```
+[web]
+SiteName = koji
+# KojiTheme =
+
+# Necessary urls
+KojiHubURL = https://stapel667.red-soft.ru/kojihub
+KojiFilesURL = http://stapel667.red-soft.ru/kojifiles
+
+## SSL authentication options
+WebCert = /etc/pki/koji/kojiweb.pem
+ClientCA = /etc/pki/koji/koji_ca_cert.crt
+KojiHubCA = /etc/pki/koji/koji_ca_cert.crt
+
+LoginTimeout = 72
+
+# This must be set before deployment
+Secret = CHANGE_ME
+
+LibPath = /usr/share/koji-web/lib
+```
+
+Перезапустим Apache
+
+```
+systemctl restart httpd.service
+```
+
+В принципе, веб-интерфейс уже должен работать. Но залогиниться не получится, так как мы не сгенерировали сертификат для браузера
+
+Идем в ```/etc/pki/koji``` и запускаем ```webcertgen.ch``` для __Kojiadmin__
+
+```
+cd /etc/pki/koji
+./webcertgen.sh kojiadmin
+```
+
+Для того, чтобы залогиниться, нам потребуется импортировать ```kojiadmin_browser_cert.p12``` в браузер
