@@ -554,6 +554,8 @@ V	320805075713Z		03	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=kojihub/CN=stapel667
 В ```/etc/httpd/conf.d/ssl.conf``` укажем требуемые пути до ключей и сертификатов
 
 ```
+ServerName stapel667.red-soft.ru:443
+
 SSLCertificateFile /etc/pki/koji/certs/kojihub.crt
 SSLCertificateKeyFile /etc/pki/koji/private/kojihub.key
 SSLCertificateChainFile /etc/pki/koji/koji_ca_cert.crt
@@ -583,7 +585,7 @@ ProxyDNs = CN=stapel667.red-soft.ru,OU=kojiweb,O=RED-SOFT,ST=Vladimir,C=RU
 setsebool -P httpd_can_network_connect_db=1
 ```
 
-### Подготовка файловой системы
+#### Подготовка файловой системы
 
 ```
 cd /mnt
@@ -652,5 +654,68 @@ koji moshimoshi
 
 ```
 [kojiadmin@localhost koji]$ koji moshimoshi
-2022-08-08 02:45:15,175 [ERROR] koji: SSLError: HTTPSConnectionPool(host='stapel667.red-soft.ru', port=443): Max retries exceeded with url: /kojihub/ssllogin (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate in certificate chain (_ssl.c:1108)')))
+2022-08-08 11:34:11,550 [ERROR] koji: ConnectionError: HTTPSConnectionPool(host='stapel667.red-soft.ru', port=443): Max retries exceeded with url: /kojihub/ssllogin (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f7eb4dfc070>: Failed to establish a new connection: [Errno -2] Name or service not known'))
+```
+
+Это происходит потому, что koji понятия не имеет, куда идти по адресу __CN__
+
+Решается она просто, идем в файл ```/etc/hosts```
+
+```
+127.0.0.1 stapel667.red-soft.ru
+```
+
+В результате, должно получиться следующее:
+
+```
+[kojiadmin@localhost koji]$ koji moshimoshi
+olá, kojiadmin!
+
+You are using the hub at https://stapel667.red-soft.ru/kojihub
+Authenticated via client certificate /home/kojiadmin/.koji/client.crt
+```
+
+Можно проверить и так:
+
+```
+koji call getLoggedInUser
+```
+
+```
+[kojiadmin@localhost koji]$ koji call getLoggedInUser
+{'authtype': 2,
+ 'id': 1,
+ 'krb_principal': None,
+ 'krb_principals': [],
+ 'name': 'kojiadmin',
+ 'status': 0,
+ 'usertype': 0}
+```
+
+
+
+> **NOTE:**
+> 
+> На самом деле это только один из вариантов проблем. Остальные 150 штук в основном возникают из-за косяков с сертификатами и путей к ним в конфигах.
+
+
+
+#### Koji-Web
+
+Установим koji-web. mod_ssl мы уже ставили ранее
+
+```
+dnf install -y koji-web
+```
+
+Идем в ```/etc/httpd/conf.d/kojiweb.conf``` и раскомментируем
+
+```
+# uncomment this to enable authentication via SSL client certificates
+
+# <Location /koji/login>
+#     SSLVerifyClient require
+#     SSLVerifyDepth  10
+#     SSLOptions +StdEnvVars
+# </Location>
 ```
