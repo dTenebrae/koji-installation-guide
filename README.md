@@ -83,13 +83,9 @@ ssh -p 3022 root@127.0.0.1
 
 Все, теперь работаем как белые люди, не нужно настраивать clipboard'ы и т.п.
 
-
-
 > **NOTE:**
 > 
 > Аутентификация в Koji работает либо через Kerberos, либо через SSL. В данном гайде рассматривается SSL
-
-
 
 С этого и начнем
 
@@ -536,12 +532,10 @@ cd /etc/pki/koji
 
 ```
 [root@localhost koji]# cat index.txt
-V	320805071659Z		01	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=os-dev/CN=kojiadmin
-V	320805075641Z		02	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=kojiweb/CN=stapel667.red-soft.ru
-V	320805075713Z		03	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=kojihub/CN=stapel667.red-soft.ru
+V    320805071659Z        01    unknown    /C=RU/ST=Vladimir/O=RED-SOFT/OU=os-dev/CN=kojiadmin
+V    320805075641Z        02    unknown    /C=RU/ST=Vladimir/O=RED-SOFT/OU=kojiweb/CN=stapel667.red-soft.ru
+V    320805075713Z        03    unknown    /C=RU/ST=Vladimir/O=RED-SOFT/OU=kojihub/CN=stapel667.red-soft.ru
 ```
-
-
 
 В ```/etc/httpd/conf.d/kojihub.conf``` раскомментируем следующее:
 
@@ -696,13 +690,9 @@ koji call getLoggedInUser
  'usertype': 0}
 ```
 
-
-
 > **NOTE:**
 > 
 > На самом деле это только один из вариантов проблем. Остальные 150 штук в основном возникают из-за косяков с сертификатами и путей к ним в конфигах.
-
-
 
 #### Koji-Web
 
@@ -725,8 +715,6 @@ dnf install -y koji-web
 ```
 
 Файл ```/etc/httpd/conf.d/ssl.conf``` мы уже откорректировали ранее
-
-
 
 Пошли в ```/etc/kojiweb/web.conf```
 
@@ -767,8 +755,6 @@ cd /etc/pki/koji
 ./webcertgen.sh kojiadmin
 ```
 
-
-
 Попробуем зайти на веб-интерфейс.
 
 Можем получить следующее сообщение
@@ -787,3 +773,76 @@ setsebool -P httpd_can_network_connect on
 После этого все должно быть в порядке.
 
 Для того, чтобы залогиниться, нам потребуется импортировать `kojiadmin_browser_cert.p12` в браузер. Если все пройдет удачно, то мы сможем зайти под kojiadmin
+
+<img src="./img/koji1.png" width="700" height="300" />
+
+> Пока не нашел где настроить редирект, поэтому при попытке залогиниться, он пытается зайти на /koji/login через http, что у него естественно не выходит. Если руками вбить https://.../koji/login то все работает
+
+#### KojiD - builder
+
+Этот демон ответственный за сборку пакетов, кроме того, он умеет создавать LiveCD и прочие образы. Но нам это пока без надобности. Под капотом он использует mock для создания чистых окружений для каждого билда и chroot'a в них
+
+Установка
+
+```
+sudo dnf install -y koji-builder
+```
+
+Сгенерируем сертификат для него. Как помним, CN должен быть именем юзера, в нашем случае пусть будет __kojibuilder1.red-soft.ru__. Результирующее название файла сертификата значения не имеет, поэтому будет kojid
+
+```
+cd /etc/pki/koji
+./certgen.sh kojid
+```
+
+Желательно, чтобы сертификаты для каждого билдера лежали в его конфигурационной директории
+
+```
+cp /etc/pki/koji/{koji_ca_cert.crt,kojid.pem} /etc/kojid/
+```
+
+Добавим нового пользователя в базу
+
+```
+su kojiadmin
+koji add-host kojibuilder1.red-soft.ru i386 x86_64
+exit
+```
+
+Определили имя хоста kojibuilder'a и архитектуры, которые он использует
+
+> **NOTE:**
+> 
+> Важно, чтобы мы добавили kojibuilder в базу до старта демона, иначе придется вычищать записи из базы, прежде чем оно сможет запуститься
+
+Идем в ```/etc/kojid/kojid.conf```
+
+```
+[kojid]
+topdir=/mnt/koji
+workdir=/tmp/koji
+user=kojibuilder1.red-soft.ru
+server=http://stapel667.red-soft.ru/kojihub
+topurl=http://stapel667.red-soft.ru/kojifiles
+
+cert = /etc/kojid/kojid.pem
+serverca = /etc/kojid/koji_ca_cert.crt
+```
+
+Добавим нашего билдера на канал. Каналы - это способ контролировать, какой билдер чем занят. Если создавать без аргумента, то хост попадет в default канал. Но хотя бы какой-то из билдеров должен быть добавлен в канал createrepo, иначе некому будет выполнять запросы kojira (об этом чуть позже)
+
+```
+su kojiadmin
+koji add-host-to-channel kojibuilder1.red-soft.ru createrepo
+exit
+```
+
+Запускаем демона
+
+```
+systemctl enable kojid.service --now
+```
+
+Теперь, если мы нигде не ошиблись, в разделе hosts должен появиться наш билдер
+
+<img src="./img/koji2.png" width="700" height="200" />
