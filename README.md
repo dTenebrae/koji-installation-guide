@@ -623,3 +623,10 @@ serverca = ~/.koji/serverca.crt
 su kojiadmin
 koji moshimoshi
 ```
+
+Может возникнуть следующая проблема:
+
+```
+[kojiadmin@localhost koji]$ koji moshimoshi
+2022-08-08 02:45:15,175 [ERROR] koji: SSLError: HTTPSConnectionPool(host='stapel667.red-soft.ru', port=443): Max retries exceeded with url: /kojihub/ssllogin (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate in certificate chain (_ssl.c:1108)')))
+```
