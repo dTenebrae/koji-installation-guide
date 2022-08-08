@@ -414,6 +414,8 @@ createuser --no-superuser --no-createrole --no-createdb koji
 createdb -O koji koji
 su koji
 psql koji koji < /usr/share/doc/koji*/docs/schema.sql
+\q
+exit
 ```
 
 > **NOTE:**
@@ -462,6 +464,8 @@ su koji
 psql
 insert into users (name, status, usertype) values ('kojiadmin', 0, 0);
 insert into user_perms (user_id, perm_id, creator_id) values (1, 1, 1);
+\q
+exit
 ```
 
 С базой данный все.
@@ -524,32 +528,42 @@ cd /etc/pki/koji
 └── webcertgen.sh
 ```
 
-В /etc/httpd/conf.d/kojihub.conf раскомментируем следующее:
+Можем посмотреть, какие сертификаты мы на текущий момент создали в ```index.txt```
+
+```
+[root@localhost koji]# cat index.txt
+V	320805071659Z		01	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=os-dev/CN=kojiadmin
+V	320805075641Z		02	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=kojiweb/CN=stapel667.red-soft.ru
+V	320805075713Z		03	unknown	/C=RU/ST=Vladimir/O=RED-SOFT/OU=kojihub/CN=stapel667.red-soft.ru
+```
+
+
+
+В ```/etc/httpd/conf.d/kojihub.conf``` раскомментируем следующее:
 
 ```
 # uncomment this to enable authentication via SSL client certificates
 
 # <Location /kojihub/ssllogin>
-
 # SSLVerifyClient require
-
 # SSLVerifyDepth  10
-
 # SSLOptions +StdEnvVars
-
 # </Location>
 ```
 
-В /etc/httpd/conf.d/ssl.conf
+В ```/etc/httpd/conf.d/ssl.conf``` укажем требуемые пути до ключей и сертификатов
 
 ```
 SSLCertificateFile /etc/pki/koji/certs/kojihub.crt
 SSLCertificateKeyFile /etc/pki/koji/private/kojihub.key
 SSLCertificateChainFile /etc/pki/koji/koji_ca_cert.crt
 SSLCACertificateFile /etc/pki/koji/koji_ca_cert.crt
+
+SSLVerifyClient require
+SSLVerifyDepth 10
 ```
 
-В /etc/koji-hub/hub.conf
+В ```/etc/koji-hub/hub.conf```
 
 ```
 DBName = koji
@@ -601,7 +615,7 @@ systemctl enable httpd.service --now
 
 ### Koji CLI
 
-Зайдем в /etc/koji.conf
+Зайдем в ```/etc/koji.conf```
 
 ```
 [koji]
