@@ -760,11 +760,30 @@ systemctl restart httpd.service
 
 В принципе, веб-интерфейс уже должен работать. Но залогиниться не получится, так как мы не сгенерировали сертификат для браузера
 
-Идем в ```/etc/pki/koji``` и запускаем ```webcertgen.ch``` для __Kojiadmin__
+Идем в ```/etc/pki/koji``` и запускаем ```webcertgen.ch``` для __kojiadmin__
 
 ```
 cd /etc/pki/koji
 ./webcertgen.sh kojiadmin
 ```
 
-Для того, чтобы залогиниться, нам потребуется импортировать ```kojiadmin_browser_cert.p12``` в браузер
+
+
+Попробуем зайти на веб-интерфейс.
+
+Можем получить следующее сообщение
+
+```
+An error has occurred while processing your request.
+ConnectionError: HTTPConnectionPool(host='stapel667.red-soft.ru', port=80): Max retries exceeded with url: /kojihub (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fa47ff8b4d0>: Failed to establish a new connection: [Errno 13] Permission denied',))
+```
+
+Решается она несложно
+
+```
+setsebool -P httpd_can_network_connect on
+```
+
+После этого все должно быть в порядке.
+
+Для того, чтобы залогиниться, нам потребуется импортировать `kojiadmin_browser_cert.p12` в браузер. Если все пройдет удачно, то мы сможем зайти под kojiadmin
