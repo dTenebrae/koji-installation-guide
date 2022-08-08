@@ -707,11 +707,11 @@ dnf install -y koji-web
 ```
 # uncomment this to enable authentication via SSL client certificates
 
-# <Location /koji/login>
-#     SSLVerifyClient require
-#     SSLVerifyDepth  10
-#     SSLOptions +StdEnvVars
-# </Location>
+<Location /koji/login>
+    SSLVerifyClient require
+    SSLVerifyDepth  10
+    SSLOptions +StdEnvVars
+</Location>
 ```
 
 Файл ```/etc/httpd/conf.d/ssl.conf``` мы уже откорректировали ранее
@@ -892,3 +892,7 @@ systemctl enable kojira.service --now
 > Еще одна проблема - при нажатии на кнопку users запрос ожидает получить одну строку, а получает много. На том и валится
 
 ##### На этом с установкой и настройкой Koji все. Далее будем подключать репозитории и пытаться использовать то, что мы создали.
+
+---
+
+### Подготавливаем Koji к работе с помощью внешних репозиториев
