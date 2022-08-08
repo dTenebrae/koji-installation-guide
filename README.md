@@ -87,8 +87,6 @@ ssh -p 3022 root@127.0.0.1
 > 
 > Аутентификация в Koji работает либо через Kerberos, либо через SSL. В данном гайде рассматривается SSL
 
-
-
 ## Создание сертификатов
 
 *С высокой долей вероятности, если Вы раньше не работали с генерацией сертификатов, то после этого гайда Вы будете их ненавидеть*
@@ -889,7 +887,23 @@ serverca = /etc/pki/koji/koji_ca_cert.crt
 systemctl enable kojira.service --now
 ```
 
-> Еще одна проблема - при нажатии на кнопку users запрос ожидает получить одну строку, а получает много. На том и валится
+> Так как в некоторых версиях koji есть баг, вызывающий ошибку ```multiple rows returned for a single row query``` при попытке посмотреть юзеров на веб-интерфейсе. 
+> 
+> Лечится следующим патчем
+> 
+> ```diff
+> > --- kojihub.py  2022-08-08 17:36:34.414862236 +0300
+> +++ kojihub.py.mod      2022-08-08 17:36:22.059884272 +0300
+> @@ -8653,7 +8653,7 @@
+>     def execute(self):
+>         query = str(self)
+>         if self.opts.get('countOnly'):
+> -            return _singleValue(query, self.values, strict=True)
+> +            return _singleValue(query, self.values, strict=False)
+>         elif self.opts.get('asList'):
+>             if self.transform is None:
+>                 return _fetchMulti(query, self.values)
+> ```
 
 ##### На этом с установкой и настройкой Koji все. Далее будем подключать репозитории и пытаться использовать то, что мы создали.
 
