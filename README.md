@@ -44,6 +44,7 @@ Koji-Client - командный интерфейс Koji. Вот тут у на�
 - koji-web - веб-интерфейс Koji
 - koji-builder - KojiD, демон сборщик RPM и не только.
 - koji-utils - Kojira. Система для работы с репозиториями.
+- rpm-build - Для работы с RPM
 - httpd - Apache http-сервер
 - postgresql-server - Серверная часть СУБД
 - mod_ssl - SSL модуль для HTTP сервера Apache
@@ -575,6 +576,10 @@ KojiDir = /mnt/koji
 LoginCreatesUser = On
 KojiWebURL = http://stapel667.red-soft.ru/koji
 
+# Отключим рассылку сообщений о выполнении сборки
+NotifyOnSuccess = False
+DisableNotifications = True
+
 DNUsernameComponent = CN
 ProxyDNs = CN=stapel667.red-soft.ru,OU=kojiweb,O=RED-SOFT,ST=Vladimir,C=RU
 ```
@@ -1009,4 +1014,42 @@ koji edit-tag dist-redos73-build -x rebuild_srpm=False
 
 Проверим в работе, то что мы создали
 
-Скачаем 
+Сначала установим `rpm-build`. Он потребуется для переупаковки под требуемый билд 
+
+```bash
+dnf install -y rpm-build
+```
+
+Скачаем для примера srpm простого эмулятора терминала ST
+
+```bash
+su kojiadmin
+cd ~
+wget https://kojipkgs.fedoraproject.org//packages/st/0.8.4/6.fc37/src/st-0.8.4-6.fc37.src.rpm
+```
+
+Теперь распакуем его в rpm build-tree
+
+```bash
+rpmbuild -rp st-0.8.4-6.fc37.src.rpm
+```
+
+Перепакуем под наш билд
+
+```bash
+rpmbuild -bs rpmbuild/SPEC/st.spec
+```
+
+И, наконец-то, запустим пакет на сборку
+
+```bash
+koji build dist-redos73 rpmbuild/SRPMS/st-0.8.4-6.el7.src.rpm
+```
+
+На веб-интерфейсе можем наблюдать процесс сборки нашего пакета
+
+<img src="./img/koji3.png" width="700" height="200" />
+
+И если все удачно, то в результате получим собранный пакет и добавим его в наш репозиторий
+
+<img src="./img/koji4.png" width="700" height="300" />
