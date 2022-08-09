@@ -896,7 +896,7 @@ serverca = /etc/pki/koji/koji_ca_cert.crt
 systemctl enable kojira.service --now
 ```
 
-> Так как в некоторых версиях koji есть баг, вызывающий ошибку ```multiple rows returned for a single row query``` при попытке посмотреть юзеров на веб-интерфейсе. 
+> В некоторых версиях koji есть баг, вызывающий ошибку ```multiple rows returned for a single row query``` при попытке посмотреть юзеров на веб-интерфейсе. 
 > 
 > Лечится следующим патчем
 > 
@@ -923,22 +923,90 @@ systemctl enable kojira.service --now
 > systemctl restart httpd.service
 > ```
 
- 
-
 На этом с установкой и настройкой Koji все. Далее будем подключать репозитории и пытаться использовать то, что мы создали.
 
 ### Подготавливаем Koji к работе с помощью внешних репозиториев
 
 Итак, мы все настроили и запустили, веб-интерфейс работает, командная строка тоже, нужные юзеры имеются, билдер готов к работе. Только что со всем этим добром делать - пока не понятно.
 
-
-
 Koji использует теги (**tag**) для идентификации и маркировки различных этапов процесса сборки RPM. Некоторые теги логически связаны друг с другом одной и той же идеей, например, сборкой для определенного дистрибутива. Мы назовем этот целевой тег **dist-redos73**. 
 
-Нам также нужен тег, который используется для сборки и наследует ту же цель. Мы назовём этот тег dist-redos73-build
+Нам также нужен тег, который используется для сборки и наследует ту же цель. Мы назовём этот тег **dist-redos73-build**
 
+Для сборки RPM Koji использует инструмент под названием mock. Mock создает чистое сборочное окружение в chroot'e. В эти chroot'ы он устанавливает базовый набор пакетов из виртуальных групп yum/dnf под названием **build** и **srpm-build**. Соответственно, мы должны указать Koji, какие пакеты будут входить в эти группы. В принципе, мы можем туда записать хоть весь наш репозиторий, но есть нюанс - эти пакеты будут устанавливаться в КАЖДОЕ сборочное окружение для каждого собираемого RPM. Соответственно, лучше выбирать поменьше и то, что действительно нужно.
+Кроме того, Koji должен знать, откуда брать пакеты, поэтому мы добавим внешние репозитории.
 
-Для сборки RPM Koji использует инструмент под названием **mock**
+Обычно теги называют следующим образом `dist-SOME_NAME,  dist-SOME_NAME-build`
 
-Mock создает чистое сборочное окружение в chroot'e. В эти chroot'ы он устанавливает базовый набор пакетов из виртуальных групп yum/dnf под названием build и srpm-build. Соответственно, мы должны указать Koji, какие пакеты будут входить в эти группы. В принципе, мы можем туда записать хоть весь наш репозиторий, но тут есть нюанс - эти пакеты будут устанавливаться в КАЖДОЕ сборочное окружение для каждого собираемого RPM. Соответственно, лучше выбирать поменьше и то, что действительно нужно.
-Кроме того, Koji должен знать, откуда брать пакеты, поэтому мы добавим внешние репозитории
+```bash
+su kojiadmin
+koji add-tag dist-redos73
+koji add-tag --parent dist-redos73 --arches "x86_64" dist-redos73-build
+```
+
+То есть, создаем тег, затем создаем дочерний тег (в родители прописываем предыдущий), указываем, какая архитектура будет использоваться при сборке, и даем ему имя
+
+Добавим внешние репозитории
+
+```bash
+koji add-external-repo -t dist-redos73-build os73-base-repo https://repo1.red-soft.ru/redos/7.3/\$arch/os
+koji add-external-repo -t dist-redos73-build os73-kernel-repo https://repo1.red-soft.ru/redos/7.3/\$arch/kernels
+koji add-external-repo -t dist-redos73-build os73-updates-repo https://repo1.red-soft.ru/redos/7.3/\$arch/updates
+```
+
+Создадим цель (target)
+
+```bash
+koji add-target dist-redos73 dist-redos73-build
+```
+
+Можем посмотреть информацию по созданному тегу
+
+```bash
+[kojiadmin@localhost ~]$ koji taginfo dist-redos73-build
+Tag: dist-redos73-build [2]
+Arches: x86_64
+Groups:
+Tag options:
+This tag is a buildroot for one or more targets
+Current repo: no active repo
+Targets that build from this tag:
+  dist-redos73
+External repos:
+    5 os73-base-repo (https://repo1.red-soft.ru/redos/7.3/$arch/os/)
+   10 os73-kernel-repo (https://repo1.red-soft.ru/redos/7.3/$arch/kernels/)
+   15 os73-updates-repo (https://repo1.red-soft.ru/redos/7.3/$arch/updates/)
+Inheritance:
+  0    .... dist-redos73 [1]
+```
+
+Создадим билд группу, то есть базовый набор устанавливаемых в окружение пакетов
+
+```bash
+koji add-group dist-redos73-build build
+koji add-group-pkg dist-redos73-build build bash bzip2 coreutils cpio diffutils findutils gawk gcc gcc-c++ grep gzip info make patch perl-Getopt-Long perl-Pod-Usage perl-Storable python-rpm-macros python-srpm-mac python-srpm-macros python2-rpm-macros python3-rpm-macros rdo-rpm-macros redhat-rpm-config redos-release rpm-build sed shadow-utils tar unzip util-linux util-linux-ng which
+
+koji regen-repo dist-redos73-build
+```
+
+Поставим `systemd-container` (он же `systemd-nspawn`), который mock использует для контейнеризации, вместо обычного chroot'a. Иначе получим ошибку на сборке пакета вида
+
+```bash
+No such file or directory: '/usr/bin/systemd-nspawn'
+No such file or directory: '/bin/machinectl'
+```
+
+```bash
+dnf install -y systemd-container
+```
+
+Кроме того, скажем mock'у использовать dnf по умолчанию. Плюс, отключим Koji функцию ребилда srpm (она используется для проверки **N**ame**V**ersion**R**elease) в результирующем билде
+
+```bash
+koji edit-tag dist-redos73-build -x mock.package_manager=dnf
+koji edit-tag dist-redos73-build -x rebuild_srpm=False
+```
+
+Проверим в работе, то что мы создали
+
+Скачаем 
