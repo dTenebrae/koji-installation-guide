@@ -1,5 +1,3 @@
-# WORK IN PROGRESS
-
 ## Установка Koji на виртуальную машину
 
 [источник раз](https://docs.pagure.org/koji/server_howto/) |
