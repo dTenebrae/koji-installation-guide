@@ -738,6 +738,14 @@ Secret = CHANGE_ME
 LibPath = /usr/share/koji-web/lib
 ```
 
+Для того, чтобы при заходе на наше доменное имя (в данном случае *stapel667.red-soft.ru*) нас перебрасывало на интересующую нас страницу, а именно /koji, настроим редирект в файле ```/etc/httpd/conf/httpd.conf```
+
+```
+RedirectMatch ^/$ /koji/
+```
+
+
+
 Перезапустим Apache
 
 ```
