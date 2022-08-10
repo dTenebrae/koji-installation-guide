@@ -1,7 +1,7 @@
 ## Установка Koji на виртуальную машину
 
 [источник раз](https://docs.pagure.org/koji/server_howto/) |
-[источник два](devops-blog.net/koji/koji-rpm-build-system-installation-part-1)
+[источник два](http://devops-blog.net/koji/koji-rpm-build-system-installation-part-1)
 
 #### Из чего состоит Koji
 
@@ -538,7 +538,7 @@ V    320805075641Z        02    unknown    /C=RU/ST=Vladimir/O=RED-SOFT/OU=kojiw
 V    320805075713Z        03    unknown    /C=RU/ST=Vladimir/O=RED-SOFT/OU=kojihub/CN=stapel667.red-soft.ru
 ```
 
-В ```/etc/httpd/conf.d/kojihub.conf``` раскомментируем следующее:
+В ```/etc/httpd/conf.d/kojihub.conf``` раскомментируем первый блок и слегка правим второй (иначе koji может не найти уже собранные пакеты для сборки новых):
 
 ```ini
 # uncomment this to enable authentication via SSL client certificates
@@ -548,6 +548,21 @@ V    320805075713Z        03    unknown    /C=RU/ST=Vladimir/O=RED-SOFT/OU=kojih
   SSLVerifyDepth  10
   SSLOptions +StdEnvVars
 </Location>
+
+<Directory "/mnt/ssd/koji">
+    #Options Indexes SymLinksIfOwnerMatch
+    #If your top /mnt/ssd/koji directory is not owned by the httpd user, then
+    #you will need to follow all symlinks instead, e.g.
+    Options Indexes FollowSymLinks
+    Options -SymLinksIfOwnerMatch +FollowSymLinks
+    AllowOverride None
+    Require all granted
+    #If you have httpd <= 2.2, you'll want the following two lines instead
+    #of the one above:
+    #Order allow,deny
+    #Allow from all
+    IndexOptions NameWidth=*
+</Directory>
 ```
 
 В `/etc/httpd/conf.d/ssl.conf` укажем требуемые пути до ключей и сертификатов
